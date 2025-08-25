@@ -1,25 +1,27 @@
 ---
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git log:*), Bash(git branch:*), Bash(ls:*), Bash(cat:*), Bash(date:*), Bash(~/.claude/go-to-git-root.sh:*), Bash(~/.claude/find-todo-files.sh:*)
-description: Validate the task docs, summarize actual work strictly from git evidence (optionally show context hints), delegate to sub-agents for doc edits and commit message, stage ONLY task/feature docs, then commit. No push. No arguments.
+description: Validate task docs, summarize changes strictly from git; optionally accept a feature-slug to incorporate docs/<feature-slug>/sprint-plan.md into context for the commit message; delegate to sub-agents; stage ONLY task/feature docs; commit (no push).
 ---
 
 # Commit (Docs-First, Evidence-Backed, Sub‑agent Assisted)
 
-> Zero-argument, deterministic workflow. Use only facts from `git` for decisions; chat/PR context is advisory. **Do not push.**  
+> Optional `feature-slug` argument supported. Use only facts from `git` for decisions; sprint plan and chat/PR context are advisory. **Do not push.**  
 > Sub‑agents: use **doc-writer** PROACTIVELY for doc edits (task + feature docs); use **commit-message-builder** MUST BE USED to craft the commit message.
+
+## Usage
+```
+/commit <feature-slug>
+
+    <feature-slug>: Folder name under `docs/<feature-slug>/` that contains `sprint-plan.md`.
+```
 
 ## 1) Validate the Docs System (STOP on failure)
 First, ensure we're working from the git repository root:
 ```bash
-source ~/.claude/go-to-git-root.sh
+~/.claude/go-to-git-root.sh
 ```
 
-Required task files (exact paths relative to project root):
-- `docs/tasks/todo.md`
-- `docs/tasks/backlog.md`
-- `docs/tasks/completed.md`
-
-Scan for conflicting variants (case/typos), e.g.: `TODO.md`, `to-do.md`, `backlogs.md`, `completed.MD`, or task files at other roots (`/docs/todo.md`, `/todo.md`).
+If the folder `docs/<feature-slug>` doesn't exist or there is no `sprint-plan.md` file within it, STOP.
 
 Run (from project root):
 ```bash
@@ -37,7 +39,9 @@ ls -la docs/tasks || true
 ---
 
 ## 2) Summarize Actual Work Done (facts only)
-Collect signals:
+The main source of truth is the `sprint-plan.md` file and the documents referenced from there (such as the TDD and PRD).
+
+Collect additional signals:
 ```bash
 git branch --show-current
 git status --porcelain
@@ -47,7 +51,7 @@ git log --oneline -5
 ```
 
 ### 2a) Context Hints (optional, non-authoritative)
-List helpful hints from chat/PR context if present, clearly labeled.
+List helpful hints from chat/PR context if present, clearly labeled. If a sprint plan was found at `docs/<feature-slug>/sprint-plan.md`, summarize its key goals/scope here (clearly labeled as advisory), and note the exact path used.
 
 ### 2b) Evidence Matrix (authoritative)
 Produce a **Change Summary (evidence-backed)** where each bullet cites files/hunks from git outputs.  
@@ -57,8 +61,7 @@ If you must infer intent beyond raw diff, place under **Assumptions**.
 
 ## 3) Update Documentation in Place (via sub-agent)
 Delegate to **doc-writer** (PROACTIVELY) with the evidence and desired targets:
-- Allowed in this workflow:  
-  - Task docs: `docs/tasks/todo.md`, `docs/tasks/backlog.md`, `docs/tasks/completed.md`  
+- Allowed in this workflow:  `  
   - Feature docs: any `docs/features/*.md` (create if justified by evidence)
 - Minimal diffs, preserve headings/format/style.
 - In `completed.md`, append as `YYYY-MM-DD — <short description> [<leading commit hash(es) if relevant>]` using `date +%F`.
@@ -79,11 +82,16 @@ git add -A
 ---
 
 ## 5) Compose a Single Commit Message (via sub-agent)
-Delegate to **commit-message-builder** (MUST BE USED) with the staged diff to craft the message:
+Delegate to **commit-message-builder** (MUST BE USED) with the staged diff to craft the message. If a sprint plan was provided and found, include its contents alongside the diff as advisory input and instruct the builder to reflect sprint goals/work items when they align with the staged evidence:
 - If staged files are all docs, enforce type `docs` and an appropriate scope (e.g., `tasks`, `features`, or `docs`).
 - Must follow Conventional Commits; include emoji; no footers/signatures.
 
 Use the returned `SUBJECT` and (optional) `BODY` verbatim.
+
+Additional guidance for the builder when a sprint plan is present:
+- Prioritize staged diff evidence over narrative.
+- Use sprint goals to shape the subject/body and to group changes under the sprint’s intent.
+- Consider using the `feature-slug` as the `scope` if it improves clarity.
 
 ---
 
@@ -104,7 +112,7 @@ git log --oneline -1
 - **Commit**: exact subject (and body if any)
 
 ## Guardrails
-- Evidence comes from `git` outputs; context is advisory only.
+- Evidence comes from `git` outputs; context (including sprint plan) is advisory only.
 - If validation fails → **STOP**.
 - If no doc edits → **STOP**.
 - Only modify/stage task docs and feature docs in this workflow.
